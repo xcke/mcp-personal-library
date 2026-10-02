@@ -17,7 +17,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 from plib.config import load_config
-from plib.indexer import index_library
+from plib.indexer import IndexProgress, index_library
 from plib.server import build_app
 
 TOKEN = "t" * 40
@@ -137,13 +137,21 @@ class Server:
 
 
 @contextmanager
-def start_server(library: Path):
+def start_server(library: Path, *, background_workers: int | None = None):
+    """background_workers=None indexes up front; a number indexes in a thread while serving."""
     config = load_config(library, {"PLIB_TOKEN": TOKEN})
-    index_library(config)
+    progress = IndexProgress()
+    indexing = None
+    if background_workers is None:
+        index_library(config)
+    else:
+        indexing = threading.Thread(
+            target=index_library, args=(config, background_workers, progress), daemon=True)
+        indexing.start()
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    uv = uvicorn.Server(uvicorn.Config(build_app(config), host="127.0.0.1", port=port,
+    uv = uvicorn.Server(uvicorn.Config(build_app(config, progress), host="127.0.0.1", port=port,
                                        access_log=False, log_level="warning"))
     thread = threading.Thread(target=uv.run, daemon=True)
     thread.start()
@@ -154,6 +162,8 @@ def start_server(library: Path):
     try:
         yield Server(root=library, base_url=f"http://127.0.0.1:{port}", token=TOKEN)
     finally:
+        if indexing:
+            indexing.join(timeout=30)
         uv.should_exit = True
         thread.join(timeout=10)
 

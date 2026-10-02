@@ -109,6 +109,9 @@ def test_serve_reconciles_at_startup(library):
         for line in proc.stdout:
             if line.startswith("MCP endpoint:"):
                 break
+        deadline = time.time() + 30
+        while "pending: 0" not in status(library) and time.time() < deadline:
+            time.sleep(0.2)
     finally:
         proc.terminate()
         proc.wait(timeout=10)

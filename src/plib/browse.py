@@ -135,3 +135,16 @@ def get_outline(conn: sqlite3.Connection, doc: str | int, max_level: int | None)
     ).fetchall()
     return [OutlineItem(r["level"], r["title"], r["unit_no"])
             for r in rows if max_level is None or r["level"] <= max_level]
+
+
+@dataclass
+class IndexCounts:
+    indexed: int
+    failed: int
+
+
+def index_counts(conn: sqlite3.Connection) -> IndexCounts:
+    row = conn.execute(
+        "SELECT COALESCE(SUM(status = 'ok'), 0) AS indexed, "
+        "COALESCE(SUM(status != 'ok'), 0) AS failed FROM documents").fetchone()
+    return IndexCounts(row["indexed"], row["failed"])

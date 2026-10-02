@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from .indexer import ProgressSnapshot
 from .grep import GrepMatch, GrepResult
 from .read import LOW_TEXT_MARKER
-from .browse import (DocumentInfo, DocumentListing, DocumentSummary, LabelRun, LabelShape,
+from .browse import (IndexCounts, DocumentInfo, DocumentListing, DocumentSummary, LabelRun, LabelShape,
                      OutlineItem)
 
 MAX_LISTED_LOW_TEXT_PAGES = 200
@@ -141,3 +142,19 @@ def format_grep(result: GrepResult, budget: int) -> str:
                 f"in {unseen_docs} documents not shown. Narrow with path_glob, doc or pages, "
                 "use a more specific pattern or less context, or raise max_hits.]")
     return out
+
+
+def format_index_status(counts: IndexCounts, progress: ProgressSnapshot) -> str:
+    lines = [
+        f"state: {progress.state}",
+        f"total: {counts.indexed + counts.failed + progress.pending}",
+        f"indexed: {counts.indexed}",
+        f"pending: {progress.pending}",
+        f"failed: {counts.failed}",
+    ]
+    if progress.current:
+        lines.append(f"current file: {progress.current}")
+    if progress.pending:
+        lines.append("[indexing in progress: documents not yet indexed are missing from "
+                     "search and grep results; check again shortly.]")
+    return "\n".join(lines)

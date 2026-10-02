@@ -13,6 +13,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .config import Config
+from .indexer import IndexProgress
 from .db import connect
 from .errors import QueryError
 from . import browse
@@ -20,7 +21,7 @@ from . import query as q
 from .read import read_units
 from .grep import grep
 from .render import MAX_PIXELS, render_page
-from .present import format_doc_info, format_locator, format_section_info, format_grep, format_listing, format_outline
+from .present import format_doc_info, format_locator, format_section_info, format_grep, format_index_status, format_listing, format_outline
 
 DEFAULT_CHAR_BUDGET = 20_000
 
@@ -42,7 +43,7 @@ def install_token_redaction(token: str) -> None:
     logging.setLogRecordFactory(factory)
 
 
-def build_mcp(config: Config) -> FastMCP:
+def build_mcp(config: Config, progress: IndexProgress) -> FastMCP:
     mcp = FastMCP(
         "plib",
         instructions="Search a personal library of PDFs and Markdown notes. Results carry a locator (doc, unit, label).",
@@ -168,6 +169,16 @@ def build_mcp(config: Config) -> FastMCP:
         return [Image(data=rendered.png, format="png"), summary]
 
     @mcp.tool()
+    def index_status() -> str:
+        """Show indexing progress: total, indexed, pending and failed document counts and
+        the file being processed now. Use it when a result you expect is missing: the
+        document may simply not be indexed yet.
+        """
+        with _read_connection(config) as conn:
+            counts = browse.index_counts(conn)
+        return format_index_status(counts, progress.snapshot())
+
+    @mcp.tool()
     def get_outline(doc: str, max_level: int | None = None) -> str:
         """Show a document's outline: PDF bookmarks or Markdown headings, each with the
         unit (page or section number) it starts at. Pass that unit to other tools.
@@ -246,7 +257,7 @@ class TokenGuard:
             await send({"type": "http.response.body", "body": b""})
 
 
-def build_app(config: Config):
+def build_app(config: Config, progress: IndexProgress | None = None):
     install_token_redaction(config.token)
-    mcp = build_mcp(config)
+    mcp = build_mcp(config, progress or IndexProgress())
     return TokenGuard(mcp.streamable_http_app(), config.token)
