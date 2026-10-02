@@ -7,7 +7,7 @@ import sys
 
 import httpx
 
-from conftest import TOKEN
+from conftest import TOKEN, run_cli
 
 
 async def call(server, tool, **args):
@@ -102,13 +102,6 @@ async def test_token_never_appears_in_logs(server, caplog):
     logging.getLogger("plib.test").warning("endpoint %s/mcp", TOKEN)
     assert TOKEN not in caplog.text
     assert TOKEN not in "".join(r.getMessage() for r in caplog.records)
-
-
-def run_cli(*args, env=None, cwd=None):
-    full_env = {k: v for k, v in os.environ.items() if k != "PLIB_TOKEN"}
-    full_env.update(env or {})
-    return subprocess.run([sys.executable, "-m", "plib.cli", *args], env=full_env,
-                          cwd=cwd, capture_output=True, text=True, timeout=30)
 
 
 def test_serve_refuses_without_token_and_suggests_one(library):

@@ -26,12 +26,12 @@ class Config:
         return self.index_dir / "index.sqlite"
 
 
-def load_config(root: str | Path, env: dict[str, str]) -> Config:
+def load_config(root: str | Path, env: dict[str, str], *, require_token: bool = True) -> Config:
     root_path = Path(root).expanduser().resolve()
     if not root_path.is_dir():
         raise ConfigError(f"Library root is not a directory: {root_path}")
     token = env.get("PLIB_TOKEN", "")
-    if len(token) < MIN_TOKEN_LENGTH:
+    if require_token and len(token) < MIN_TOKEN_LENGTH:
         problem = "is not set" if not token else f"is too short ({len(token)} chars)"
         raise ConfigError(
             f"PLIB_TOKEN {problem}; it must be at least {MIN_TOKEN_LENGTH} characters.\n"

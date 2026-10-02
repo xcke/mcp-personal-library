@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import socket
+import subprocess
+import sys
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -53,6 +56,13 @@ def library(tmp_path: Path) -> Path:
     make_pdf(root / "secret.pdf", ["Top secret plans"], password="pw")
     (root / "corrupt.pdf").write_bytes(b"this is not a pdf")
     return root
+
+
+def run_cli(*args, env=None, cwd=None):
+    full_env = {k: v for k, v in os.environ.items() if k != "PLIB_TOKEN"}
+    full_env.update(env or {})
+    return subprocess.run([sys.executable, "-m", "plib.cli", *args], env=full_env,
+                          cwd=cwd, capture_output=True, text=True, timeout=30)
 
 
 @dataclass
