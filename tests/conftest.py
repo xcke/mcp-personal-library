@@ -20,6 +20,7 @@ from plib.config import load_config
 from plib.indexer import index_library
 from plib.progress import IndexProgress
 from plib.server import build_app
+from plib.watcher import LibraryWatcher, WatchTiming
 
 TOKEN = "t" * 40
 
@@ -138,8 +139,10 @@ class Server:
 
 
 @contextmanager
-def start_server(library: Path, *, background_workers: int | None = None):
-    """background_workers=None indexes up front; a number indexes in a thread while serving."""
+def start_server(library: Path, *, background_workers: int | None = None,
+                 watch: WatchTiming | None = None):
+    """background_workers=None indexes up front; a number indexes in a thread while serving.
+    watch starts the live file watcher (after the up-front index) with that timing."""
     config = load_config(library, {"PLIB_TOKEN": TOKEN})
     progress = IndexProgress()
     indexing = None
@@ -149,6 +152,10 @@ def start_server(library: Path, *, background_workers: int | None = None):
         indexing = threading.Thread(
             target=index_library, args=(config, background_workers, progress), daemon=True)
         indexing.start()
+    watcher = LibraryWatcher(config, watch) if watch else None
+    if watcher:
+        watcher.start_observing()
+        watcher.start_processing()
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
@@ -163,6 +170,8 @@ def start_server(library: Path, *, background_workers: int | None = None):
     try:
         yield Server(root=library, base_url=f"http://127.0.0.1:{port}", token=TOKEN)
     finally:
+        if watcher:
+            watcher.stop()
         if indexing:
             indexing.join(timeout=30)
         uv.should_exit = True

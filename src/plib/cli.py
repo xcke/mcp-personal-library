@@ -12,6 +12,7 @@ from .config import Config, ConfigError, load_config
 from .indexer import index_library, library_status
 from .progress import IndexProgress
 from .server import build_app
+from .watcher import LibraryWatcher
 
 
 def format_status(s: dict) -> str:
@@ -29,12 +30,15 @@ def format_status(s: dict) -> str:
     return "\n".join(lines)
 
 
-def _index_in_background(config: Config, workers: int | None, progress: IndexProgress) -> None:
+def _index_in_background(config: Config, workers: int | None, progress: IndexProgress,
+                         watcher: LibraryWatcher) -> None:
     print(f"Indexing {config.root} in the background ...", flush=True)
     try:
         print(f"Index complete: {index_library(config, workers, progress).summary()}", flush=True)
     except Exception:  # the server must keep answering even if a pass dies
         logging.getLogger("plib.indexer").exception("Background indexing failed")
+    finally:
+        watcher.start_processing()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,11 +74,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Index complete: {index_library(config, args.workers).summary()}", flush=True)
         return 0
     progress = IndexProgress()
-    threading.Thread(target=_index_in_background, args=(config, args.workers, progress),
+    watcher = LibraryWatcher(config, workers=args.workers)
+    watcher.start_observing()
+    threading.Thread(target=_index_in_background, args=(config, args.workers, progress, watcher),
                      name="indexer", daemon=True).start()
     app = build_app(config, progress)
     print(f"MCP endpoint: http://{args.host}:{args.port}/{config.token}/mcp", flush=True)
-    uvicorn.run(app, host=args.host, port=args.port, access_log=False, log_level="warning")
+    try:
+        uvicorn.run(app, host=args.host, port=args.port, access_log=False, log_level="warning")
+    finally:
+        watcher.stop()
     return 0
 
 

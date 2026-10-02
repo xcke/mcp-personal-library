@@ -10,6 +10,7 @@ dependencies = [
     "uvicorn",
     "pathspec",
     "pyyaml",
+    "watchdog>=6.0.0",
 ]
 
 [project.scripts]

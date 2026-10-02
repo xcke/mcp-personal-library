@@ -42,6 +42,13 @@ def document_kind(name: str) -> str | None:
     return KINDS.get(Path(name).suffix.lower())
 
 
+def is_indexable(rel: str, ignore: pathspec.GitIgnoreSpec) -> bool:
+    parts = rel.split("/")
+    if any(part.startswith(".") for part in parts) or document_kind(parts[-1]) is None:
+        return False
+    return not ignore.match_file(rel)
+
+
 def walk_library(root: Path):
     ignore = load_ignore(root)
     for dirpath, dirnames, filenames in os.walk(root):
@@ -52,11 +59,8 @@ def walk_library(root: Path):
             if not d.startswith(".") and not ignore.match_file(f"{prefix}{d}/")
         ]
         for name in filenames:
-            if name.startswith(".") or document_kind(name) is None:
-                continue
-            if ignore.match_file(prefix + name):
-                continue
-            yield Path(dirpath) / name
+            if is_indexable(prefix + name, ignore):
+                yield Path(dirpath) / name
 
 
 def sha256_of(path: Path) -> str:
@@ -153,6 +157,72 @@ def index_library(config: Config, workers: int | None = None,
         conn.close()
         progress.finish()
     return report
+
+
+def paths_under(config: Config, rel_dir: str) -> set[str]:
+    """Every path inside a directory that is on disk or still indexed; used when a folder changes."""
+    prefix = rel_dir.rstrip("/") + "/"
+    conn = connect(config.db_path)
+    try:
+        indexed = {r["path"] for r in conn.execute(
+            "SELECT path FROM documents WHERE substr(path, 1, ?) = ?", (len(prefix), prefix))}
+    finally:
+        conn.close()
+    on_disk = {f.relative_to(config.root).as_posix()
+               for f in walk_library(config.root) if f.relative_to(config.root).as_posix().startswith(prefix)}
+    return indexed | on_disk
+
+
+def sync_paths(config: Config, rels: set[str], workers: int | None = None) -> IndexReport:
+    """Brings the given paths up to date: indexes new or changed files, drops vanished ones,
+    and carries an existing document over to a new path when the content hash matches."""
+    report = IndexReport()
+    ignore = load_ignore(config.root)
+    present = {r for r in rels if is_indexable(r, ignore) and (config.root / r).is_file()}
+    conn = connect(config.db_path)
+    try:
+        known = {r["path"]: r for r in conn.execute("SELECT path, size, mtime, sha256 FROM documents")}
+        work = _changed_files(conn, config, sorted(present), known, report)
+        if work:
+            _extract_and_store(conn, config, work, workers or default_workers(), IndexProgress(), report)
+        with conn:
+            for rel in rels - present:
+                if rel in known:
+                    conn.execute("DELETE FROM documents WHERE path = ?", (rel,))
+                    invalidate_renders(config.index_dir, rel)
+                    report.removed += 1
+    finally:
+        conn.close()
+    return report
+
+
+def _changed_files(conn: sqlite3.Connection, config: Config, present: list[str],
+                   known: dict[str, sqlite3.Row], report: IndexReport) -> list[tuple[str, str | None]]:
+    work: list[tuple[str, str | None]] = []
+    for rel in present:
+        row, stat = known.get(rel), (config.root / rel).stat()
+        if row and row["size"] == stat.st_size and row["mtime"] == stat.st_mtime:
+            report.unchanged += 1
+        elif row is None and _adopt_moved_document(conn, config, rel, stat, known):
+            report.unchanged += 1
+        else:
+            work.append((rel, row["sha256"] if row else None))
+    return work
+
+
+def _adopt_moved_document(conn: sqlite3.Connection, config: Config, rel: str,
+                          stat: os.stat_result, known: dict[str, sqlite3.Row]) -> bool:
+    """A new path whose content matches an indexed file that left disk is that file, renamed."""
+    digest = sha256_of(config.root / rel)
+    for old_rel, row in known.items():
+        if row["sha256"] == digest and not (config.root / old_rel).exists():
+            with conn:
+                conn.execute("UPDATE documents SET path = ?, size = ?, mtime = ? WHERE path = ?",
+                             (rel, stat.st_size, stat.st_mtime, old_rel))
+            invalidate_renders(config.index_dir, old_rel)
+            del known[old_rel]
+            return True
+    return False
 
 
 def _scan(conn: sqlite3.Connection, config: Config,
