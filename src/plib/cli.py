@@ -9,7 +9,8 @@ import threading
 import uvicorn
 
 from .config import Config, ConfigError, load_config
-from .indexer import IndexProgress, index_library, library_status
+from .indexer import index_library, library_status
+from .progress import IndexProgress
 from .server import build_app
 
 

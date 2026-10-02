@@ -13,7 +13,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .config import Config
-from .indexer import IndexProgress
+from .progress import IndexProgress
 from .db import connect
 from .errors import QueryError
 from . import browse

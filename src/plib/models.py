@@ -1,6 +1,32 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
+
+
+class DocumentStatus(StrEnum):
+    OK = "ok"
+    ERROR = "error"
+    ENCRYPTED = "encrypted"
+
+
+class IndexOutcome(StrEnum):
+    INDEXED = "indexed"
+    UNCHANGED = "unchanged"
+    FAILED = "failed"
+
+
+class IndexState(StrEnum):
+    IDLE = "idle"
+    SCANNING = "scanning"
+    INDEXING = "indexing"
+
+
+@dataclass(frozen=True)
+class ProgressSnapshot:
+    state: IndexState
+    pending: int
+    current: str | None
 
 
 @dataclass

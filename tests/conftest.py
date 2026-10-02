@@ -17,7 +17,8 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 from plib.config import load_config
-from plib.indexer import IndexProgress, index_library
+from plib.indexer import index_library
+from plib.progress import IndexProgress
 from plib.server import build_app
 
 TOKEN = "t" * 40

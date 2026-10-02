@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from .indexer import ProgressSnapshot
 from .grep import GrepMatch, GrepResult
 from .read import LOW_TEXT_MARKER
+from .models import ProgressSnapshot
 from .browse import (IndexCounts, DocumentInfo, DocumentListing, DocumentSummary, LabelRun, LabelShape,
                      OutlineItem)
 
