@@ -17,9 +17,9 @@ from .db import connect
 from .errors import QueryError
 from . import browse
 from . import query as q
-from .read import LOW_TEXT_MARKER, read_units
+from .read import read_units
 from .grep import grep
-from .present import format_doc_info, format_grep, format_listing, format_outline
+from .present import format_doc_info, format_locator, format_section_info, format_grep, format_listing, format_outline
 
 DEFAULT_CHAR_BUDGET = 20_000
 
@@ -168,26 +168,15 @@ def _read_connection(config: Config) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-def _section_info(h: q.Hit) -> str:
-    parts = []
-    if h.heading_path:
-        parts.append(f"section: {h.heading_path}")
-    if h.line_start is not None:
-        parts.append(f"lines {h.line_start}-{h.line_end}")
-    return f"\n   ({', '.join(parts)})" if parts else ""
-
-
 def format_hits(hits: list[q.Hit], limit: int, budget: int | None = None) -> str:
     budget = budget or DEFAULT_CHAR_BUDGET
     if not hits:
         return "No matches. Try fewer or broader terms, a prefix* term, or OR."
     lines, used, shown = [], 0, 0
     for i, h in enumerate(hits, 1):
-        label = h.label if h.label else "-"
         entry = (
-            f"{i}. {h.title} — locator {{doc: {h.doc!r}, unit: {h.unit}, label: {label!r}}}"
-            + (f"  {LOW_TEXT_MARKER}" if h.low_text else "")
-            + _section_info(h)
+            f"{i}. {h.title} — {format_locator(h.doc, h.unit, h.label, h.low_text)}"
+            + format_section_info(h.heading_path, h.line_start, h.line_end)
             + f"\n   {h.snippet}"
         )
         if used + len(entry) > budget and shown:

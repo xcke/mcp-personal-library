@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .grep import GrepResult
+from .grep import GrepMatch, GrepResult
 from .read import LOW_TEXT_MARKER
 from .browse import (DocumentInfo, DocumentListing, DocumentSummary, LabelRun, LabelShape,
                      OutlineItem)
@@ -101,16 +101,24 @@ def format_outline(items: list[OutlineItem], max_level: int | None, budget: int)
     return out
 
 
-def _match_entry(index: int, match) -> str:
-    label = match.label if match.label else "-"
-    head = f"{index}. locator {{doc: {match.doc!r}, unit: {match.unit}, label: {label!r}}}"
-    if match.low_text:
-        head += f"  {LOW_TEXT_MARKER}"
-    if match.heading_path:
-        head += f"\n   (section: {match.heading_path})"
-    if match.line_start is not None:
-        head += f"\n   (lines {match.line_start}-{match.line_end} of the section)"
-    return f"{head}\n   {match.excerpt}"
+def format_locator(doc: str, unit: int, label: str | None, low_text: bool) -> str:
+    return (f"locator {{doc: {doc!r}, unit: {unit}, label: {label or '-'!r}}}"
+            + (f"  {LOW_TEXT_MARKER}" if low_text else ""))
+
+
+def format_section_info(heading_path: str, line_start: int | None, line_end: int | None) -> str:
+    parts = []
+    if heading_path:
+        parts.append(f"section: {heading_path}")
+    if line_start is not None:
+        parts.append(f"lines {line_start}-{line_end}")
+    return f"\n   ({', '.join(parts)})" if parts else ""
+
+
+def _match_entry(index: int, match: GrepMatch) -> str:
+    head = format_locator(match.doc, match.unit, match.label, match.low_text)
+    section = format_section_info(match.heading_path, match.line_start, match.line_end)
+    return f"{index}. {head}{section}\n   {match.excerpt}"
 
 
 def format_grep(result: GrepResult, budget: int) -> str:
