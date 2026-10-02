@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hmac
 import logging
+import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 
 from mcp.server.fastmcp import FastMCP
@@ -99,7 +101,7 @@ def build_mcp(config: Config) -> FastMCP:
 
 
 @contextmanager
-def _read_connection(config: Config):
+def _read_connection(config: Config) -> Iterator[sqlite3.Connection]:
     conn = connect(config.db_path)
     try:
         yield conn
@@ -109,7 +111,7 @@ def _read_connection(config: Config):
         conn.close()
 
 
-def _section_info(h) -> str:
+def _section_info(h: q.Hit) -> str:
     parts = []
     if h.heading_path:
         parts.append(f"section: {h.heading_path}")
@@ -118,7 +120,7 @@ def _section_info(h) -> str:
     return f"\n   ({', '.join(parts)})" if parts else ""
 
 
-def format_hits(hits, limit: int, budget: int | None = None) -> str:
+def format_hits(hits: list[q.Hit], limit: int, budget: int | None = None) -> str:
     budget = budget or DEFAULT_CHAR_BUDGET
     if not hits:
         return "No matches. Try fewer or broader terms, a prefix* term, or OR."

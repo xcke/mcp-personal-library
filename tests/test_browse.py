@@ -111,3 +111,40 @@ async def test_unknown_document_gives_clear_error(server):
     for tool in ("doc_info", "get_outline"):
         result = await call(server, tool, doc="missing.pdf")
         assert result.isError and "Unknown document" in result.content[0].text
+
+
+async def test_failed_document_error_does_not_leak_absolute_paths(server):
+    out = await text(server, "doc_info", doc="corrupt.pdf")
+    assert "status: error" in out
+    assert str(server.root) not in out and "corrupt.pdf" in out
+
+
+async def test_unknown_kind_is_rejected_with_valid_options(server):
+    result = await call(server, "list_documents", kind="docx")
+    assert result.isError
+    assert "pdf" in result.content[0].text and "md" in result.content[0].text
+
+
+async def test_unlabelled_pages_inside_labelled_pdf_are_summarised(library):
+    from conftest import make_pdf, start_server
+    make_pdf(library / "partial.pdf", ["one", "two", "three"],
+             labels=[{"startpage": 1, "prefix": "", "style": "D", "firstpagenum": 1}])
+    with start_server(library) as running:
+        out = await text(running, "doc_info", doc="partial.pdf")
+    assert "page 1 -> (no label)" in out
+    assert "pages 2-3 -> 1-2" in out
+
+
+async def test_heading_path_follows_outline_across_levels(library):
+    from conftest import make_pdf, start_server
+    make_pdf(library / "book.pdf", ["prologue words", "alpha words", "beta words", "gamma words"],
+             toc=[[1, "Part A", 2], [2, "Chapter A1", 3], [1, "Part B", 4]])
+    with start_server(library) as running:
+        before = await text(running, "search", query="prologue")
+        part = await text(running, "search", query="alpha")
+        chapter = await text(running, "search", query="beta")
+        next_part = await text(running, "search", query="gamma")
+    assert "section:" not in before  # page 1 precedes the first outline entry
+    assert "section: Part A)" in part
+    assert "section: Part A > Chapter A1" in chapter
+    assert "section: Part B)" in next_part  # a new top-level entry drops the old chapter

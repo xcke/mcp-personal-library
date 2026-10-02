@@ -116,7 +116,7 @@ def _index_file(conn: sqlite3.Connection, file: Path, rel: str) -> str:
     except EncryptedPDF as e:
         status, error = "encrypted", str(e)
     except Exception as e:  # corrupt or unreadable file must not stop indexing
-        status, error = "error", f"{type(e).__name__}: {e}"
+        status, error = "error", f"{type(e).__name__}: {str(e).replace(str(file), rel)}"
         log.warning("Failed to index %s: %s", rel, error)
 
     with conn:

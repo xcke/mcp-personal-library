@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from .browse import DocumentInfo, DocumentListing, DocumentSummary, OutlineItem
+from .browse import (DocumentInfo, DocumentListing, DocumentSummary, LabelRun, LabelShape,
+                     OutlineItem)
+
+MAX_LISTED_LOW_TEXT_PAGES = 200
 
 
 def _unit_noun(kind: str) -> str:
@@ -38,12 +41,19 @@ def _listing_line(d: DocumentSummary) -> str:
             f"{d.unit_count} {_unit_noun(d.kind)} | {status}")
 
 
-def _label_lines(runs: list[tuple[int, int, str, str]]) -> list[str]:
-    labelled = [(a, b, fa, fb) for a, b, fa, fb in runs if fa or fb]
-    if not labelled:
+def _label_lines(runs: list[LabelRun]) -> list[str]:
+    if all(run.shape is LabelShape.NONE for run in runs):
         return ["  none (printed labels equal physical numbers)"]
-    return [f"  page {a} -> {fa}" if a == b else f"  pages {a}-{b} -> {fa}-{fb}"
-            for a, b, fa, fb in labelled]
+    lines = []
+    for run in runs:
+        pages = f"page {run.first_page}" if run.first_page == run.last_page else f"pages {run.first_page}-{run.last_page}"
+        if run.shape is LabelShape.NONE:
+            lines.append(f"  {pages} -> (no label)")
+        elif run.first_page == run.last_page:
+            lines.append(f"  {pages} -> {run.first_label}")
+        else:
+            lines.append(f"  {pages} -> {run.first_label}-{run.last_label}")
+    return lines
 
 
 def format_doc_info(info: DocumentInfo, budget: int) -> str:
@@ -57,8 +67,8 @@ def format_doc_info(info: DocumentInfo, budget: int) -> str:
         lines.append("page labels (physical pages -> printed labels):")
         lines += _label_lines(info.page_labels)
         if info.low_text_units:
-            shown = ", ".join(str(n) for n in info.low_text_units[:200])
-            extra = len(info.low_text_units) - 200
+            shown = ", ".join(str(n) for n in info.low_text_units[:MAX_LISTED_LOW_TEXT_PAGES])
+            extra = len(info.low_text_units) - MAX_LISTED_LOW_TEXT_PAGES
             lines.append(f"low-text pages: {shown}" + (f" (+{extra} more)" if extra > 0 else "")
                          + "  [text is unreliable here; use render_page]")
         else:

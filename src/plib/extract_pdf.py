@@ -29,7 +29,7 @@ def extract_pdf(path) -> Extracted:
             units.append(
                 Unit(
                     unit_no=page.number + 1,
-                    label=page.get_label() or None,
+                    label=_page_label(page),
                     text=text,
                     image_count=images,
                     low_text=low,
@@ -43,6 +43,13 @@ def extract_pdf(path) -> Extracted:
         units=units,
         outline=outline,
     )
+
+
+def _page_label(page: pymupdf.Page) -> str | None:
+    try:
+        return page.get_label() or None
+    except (IndexError, ValueError, RuntimeError):  # malformed label tables must not fail the document
+        return None
 
 
 def _assign_heading_paths(units: list[Unit], outline: list[OutlineEntry]) -> None:

@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
+from enum import Enum
 
-from .query import resolve_doc
+from .query import QueryError, resolve_doc
+
+DOCUMENT_KINDS = ("pdf", "md")
 
 
 @dataclass
@@ -25,12 +28,30 @@ class DocumentListing:
     offset: int
 
 
+class LabelShape(Enum):
+    NONE = "none"
+    ARABIC = "arabic"
+    ROMAN_LOWER = "roman-lower"
+    ROMAN_UPPER = "roman-upper"
+    OTHER = "other"
+
+
+@dataclass
+class LabelRun:
+    """Consecutive pages whose printed labels share a numbering style."""
+    first_page: int
+    last_page: int
+    first_label: str
+    last_label: str
+    shape: LabelShape
+
+
 @dataclass
 class DocumentInfo:
     summary: DocumentSummary
     author: str | None
     metadata: dict
-    page_labels: list[tuple[int, int, str, str]]  # (first unit, last unit, first label, last label)
+    page_labels: list[LabelRun]
     low_text_units: list[int]
 
 
@@ -48,6 +69,8 @@ def _summary(row: sqlite3.Row) -> DocumentSummary:
 
 def list_documents(conn: sqlite3.Connection, *, glob: str | None, kind: str | None,
                    limit: int, offset: int) -> DocumentListing:
+    if kind and kind not in DOCUMENT_KINDS:
+        raise QueryError(f"Unknown kind {kind!r}. Use one of: {', '.join(DOCUMENT_KINDS)}.")
     where, params = ["1=1"], []
     if glob:
         where.append("path GLOB ?")
@@ -79,31 +102,28 @@ def doc_info(conn: sqlite3.Connection, doc: str | int) -> DocumentInfo:
     )
 
 
-def _label_shape(label: str | None) -> str:
+def _label_shape(label: str | None) -> LabelShape:
     if not label:
-        return "none"
+        return LabelShape.NONE
     if label.isdigit():
-        return "arabic"
+        return LabelShape.ARABIC
     if label.isalpha() and label.islower() and set(label) <= set("ivxlcdm"):
-        return "roman-lower"
+        return LabelShape.ROMAN_LOWER
     if label.isalpha() and label.isupper() and set(label) <= set("IVXLCDM"):
-        return "roman-upper"
-    return "other"
+        return LabelShape.ROMAN_UPPER
+    return LabelShape.OTHER
 
 
-def _label_runs(units: list[sqlite3.Row]) -> list[tuple[int, int, str, str]]:
-    """Consecutive pages sharing a label shape, as (first page, last page, first label, last label)."""
-    runs: list[tuple[int, int, str, str]] = []
-    previous_shape = None
+def _label_runs(units: list[sqlite3.Row]) -> list[LabelRun]:
+    runs: list[LabelRun] = []
     for unit in units:
         shape = _label_shape(unit["label"])
         label = unit["label"] or ""
-        if runs and shape == previous_shape:
-            first, _, first_label, _ = runs[-1]
-            runs[-1] = (first, unit["unit_no"], first_label, label)
+        if runs and runs[-1].shape == shape:
+            runs[-1].last_page = unit["unit_no"]
+            runs[-1].last_label = label
         else:
-            runs.append((unit["unit_no"], unit["unit_no"], label, label))
-        previous_shape = shape
+            runs.append(LabelRun(unit["unit_no"], unit["unit_no"], label, label, shape))
     return runs
 
 
