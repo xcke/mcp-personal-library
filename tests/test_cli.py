@@ -113,3 +113,31 @@ def test_serve_reconciles_at_startup(library):
         proc.terminate()
         proc.wait(timeout=10)
     assert "pending: 0" in status(library)
+
+
+async def search_text(server: Server, query: str) -> str:
+    async with server.client() as session:
+        return (await session.call_tool("search", {"query": query})).content[0].text
+
+
+async def test_changed_file_replaces_old_text_in_search(server: Server):
+    assert "networking.pdf" in await search_text(server, "router")
+    make_pdf(server.root / "networking.pdf", ["Wombats are marsupials"])
+    index(server.root)
+    assert "No matches" in await search_text(server, "router")
+    assert "networking.pdf" in await search_text(server, "wombats")
+
+
+async def test_deleted_file_disappears_from_search(server: Server):
+    (server.root / "networking.pdf").unlink()
+    index(server.root)
+    assert "No matches" in await search_text(server, "router")
+    assert "gardening.pdf" in await search_text(server, "tomatoes")
+
+
+async def test_newly_ignored_file_is_removed_from_index(server: Server):
+    (server.root / ".plibignore").write_text("books/\n")
+    out = index(server.root)
+    assert "removed 1" in out
+    assert "No matches" in await search_text(server, "tomatoes")
+    assert "networking.pdf" in await search_text(server, "router")
