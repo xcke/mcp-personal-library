@@ -23,11 +23,19 @@ from plib.server import build_app
 TOKEN = "t" * 40
 
 
-def make_pdf(path: Path, pages: list[str], *, toc=None, labels=None, password=None) -> None:
+IMAGE_ONLY = None  # marker: a page holding only a picture, no extractable text
+
+
+def make_pdf(path: Path, pages: list[str | None], *, toc=None, labels=None, password=None) -> None:
     doc = pymupdf.open()
     for text in pages:
         page = doc.new_page()
-        page.insert_text((72, 100), text, fontsize=11)
+        if text is IMAGE_ONLY:
+            pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 200, 120))
+            pixmap.set_rect(pixmap.irect, (200, 30, 30))
+            page.insert_image(pymupdf.Rect(72, 100, 372, 280), pixmap=pixmap)
+        else:
+            page.insert_text((72, 100), text, fontsize=11)
     if toc:
         doc.set_toc(toc)
     if labels:
@@ -40,6 +48,51 @@ def make_pdf(path: Path, pages: list[str], *, toc=None, labels=None, password=No
     doc.close()
 
 
+GUIDE = """---
+title: Guide Title
+author: Ada
+tags: [zebrameta]
+---
+Intro text before any heading.
+
+# Install
+
+Install overview.
+
+## Linux
+
+Run the apt installer.
+
+```bash
+# fakeheading comment inside a fence
+echo hi
+```
+
+Still in Linux after the fence.
+
+## macOS
+
+Use brew.
+
+# Usage
+
+Usage text.
+"""
+
+OVERSIZED = "# Big\n\n" + "\n\n".join(
+    f"para{i:03d} " + ("lorem ipsum " * 60) for i in range(30)
+) + "\n"
+
+
+@pytest.fixture
+def markdown_files(library):
+    (library / "notes").mkdir()
+    (library / "notes" / "guide.md").write_text(GUIDE)
+    (library / "notes" / "h1only.markdown").write_text("# Real Title\n\nbody about quokkas\n")
+    (library / "plain.md").write_text("Just prose about axolotls.\n\nSecond paragraph.\n")
+    (library / "big.md").write_text(OVERSIZED)
+
+
 @pytest.fixture
 def library(tmp_path: Path) -> Path:
     root = tmp_path / "lib"
@@ -47,8 +100,8 @@ def library(tmp_path: Path) -> Path:
     make_pdf(
         root / "books" / "gardening.pdf",
         ["Introduction to gardening", "Configuring the irrigation system",
-         "Tomatoes need full sun and rich soil"],
-        toc=[[1, "Basics", 1], [2, "Irrigation", 2]],
+         "Tomatoes need full sun and rich soil", IMAGE_ONLY],
+        toc=[[1, "Basics", 1], [2, "Irrigation", 2], [1, "Diagrams", 4]],
         labels=[{"startpage": 0, "prefix": "", "style": "r", "firstpagenum": 1},
                 {"startpage": 2, "prefix": "", "style": "D", "firstpagenum": 1}],
     )

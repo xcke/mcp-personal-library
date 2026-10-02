@@ -1,53 +1,6 @@
 from __future__ import annotations
 
-import pytest
-
 from conftest import Server, start_server
-
-GUIDE = """---
-title: Guide Title
-author: Ada
-tags: [zebrameta]
----
-Intro text before any heading.
-
-# Install
-
-Install overview.
-
-## Linux
-
-Run the apt installer.
-
-```bash
-# fakeheading comment inside a fence
-echo hi
-```
-
-Still in Linux after the fence.
-
-## macOS
-
-Use brew.
-
-# Usage
-
-Usage text.
-"""
-
-OVERSIZED = "# Big\n\n" + "\n\n".join(
-    f"para{i:03d} " + ("lorem ipsum " * 60) for i in range(30)
-) + "\n"
-
-
-@pytest.fixture
-def markdown_files(library):
-    (library / "notes").mkdir()
-    (library / "notes" / "guide.md").write_text(GUIDE)
-    (library / "notes" / "h1only.markdown").write_text("# Real Title\n\nbody about quokkas\n")
-    (library / "plain.md").write_text("Just prose about axolotls.\n\nSecond paragraph.\n")
-    (library / "big.md").write_text(OVERSIZED)
-
 
 async def search(server: Server, query: str) -> str:
     async with server.client() as session:

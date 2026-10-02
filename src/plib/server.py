@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+from contextlib import contextmanager
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
@@ -9,7 +10,9 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from .config import Config
 from .db import connect
+from . import browse
 from . import query as q
+from .present import format_doc_info, format_listing, format_outline
 
 DEFAULT_CHAR_BUDGET = 20_000
 
@@ -54,16 +57,56 @@ def build_mcp(config: Config) -> FastMCP:
         document (relative path or numeric id). Each hit shows a locator
         doc/unit/label and a snippet with matches wrapped in [[ ]].
         """
-        conn = connect(config.db_path)
-        try:
+        with _read_connection(config) as conn:
             hits = q.search(conn, query, path_glob=path_glob, doc=doc, limit=limit)
-        except q.QueryError as e:
-            raise ToolError(str(e)) from e
-        finally:
-            conn.close()
         return format_hits(hits, limit)
 
+    @mcp.tool()
+    def list_documents(glob: str | None = None, kind: str | None = None,
+                       limit: int = 50, offset: int = 0) -> str:
+        """List documents (like `ls`): id, path, kind, title, page/section count, status.
+
+        glob filters by relative path (e.g. "books/*"); kind is "pdf" or "md".
+        Failed documents (encrypted, corrupt) are listed with their reason.
+        """
+        with _read_connection(config) as conn:
+            listing = browse.list_documents(conn, glob=glob, kind=kind, limit=limit, offset=offset)
+        return format_listing(listing, DEFAULT_CHAR_BUDGET)
+
+    @mcp.tool()
+    def doc_info(doc: str) -> str:
+        """Show one document's metadata (like `stat`): title, author, PDF metadata or Markdown
+        front-matter, page/section count, printed page-label ranges, and low-text pages.
+
+        doc is a path relative to the library root or a numeric id.
+        """
+        with _read_connection(config) as conn:
+            info = browse.doc_info(conn, doc)
+        return format_doc_info(info, DEFAULT_CHAR_BUDGET)
+
+    @mcp.tool()
+    def get_outline(doc: str, max_level: int | None = None) -> str:
+        """Show a document's outline: PDF bookmarks or Markdown headings, each with the
+        unit (page or section number) it starts at. Pass that unit to other tools.
+
+        max_level limits depth (1 = top level only).
+        """
+        with _read_connection(config) as conn:
+            items = browse.get_outline(conn, doc, max_level)
+        return format_outline(items, max_level, DEFAULT_CHAR_BUDGET)
+
     return mcp
+
+
+@contextmanager
+def _read_connection(config: Config):
+    conn = connect(config.db_path)
+    try:
+        yield conn
+    except q.QueryError as e:
+        raise ToolError(str(e)) from e
+    finally:
+        conn.close()
 
 
 def _section_info(h) -> str:
