@@ -14,6 +14,7 @@ import pathspec
 from .config import INDEX_DIRNAME, Config
 from .db import connect
 from .extract_md import extract_md
+from .render import invalidate_renders
 from .extract_pdf import EncryptedPDF, extract_pdf
 
 log = logging.getLogger("plib.indexer")
@@ -81,12 +82,15 @@ def index_library(config: Config) -> IndexReport:
             rel = file.relative_to(config.root).as_posix()
             seen.add(rel)
             outcome = _index_file(conn, file, rel)
+            if outcome in ("indexed", "failed"):
+                invalidate_renders(config.index_dir, rel)
             setattr(report, outcome, getattr(report, outcome) + 1)
         existing = [r["path"] for r in conn.execute("SELECT path FROM documents")]
         with conn:
             for rel in existing:
                 if rel not in seen:
                     conn.execute("DELETE FROM documents WHERE path = ?", (rel,))
+                    invalidate_renders(config.index_dir, rel)
                     report.removed += 1
     finally:
         conn.close()

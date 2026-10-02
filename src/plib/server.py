@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from typing import Annotated
 from contextlib import contextmanager
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 from pydantic import Field
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
@@ -19,6 +19,7 @@ from . import browse
 from . import query as q
 from .read import read_units
 from .grep import grep
+from .render import MAX_PIXELS, render_page
 from .present import format_doc_info, format_locator, format_section_info, format_grep, format_listing, format_outline
 
 DEFAULT_CHAR_BUDGET = 20_000
@@ -142,6 +143,29 @@ def build_mcp(config: Config) -> FastMCP:
         return (f"{result.text}\n\n[truncated at max_chars={max_chars}. "
                 f"next_cursor: {result.next_cursor}  (repeat the call with the same "
                 "doc/from/to and cursor=<next_cursor>)]")
+
+    @mcp.tool(name="render_page")
+    def render_page_tool(doc: str, page: str, dpi: int = 110,
+                         clip: str | None = None) -> list:
+        """Render one PDF page (or a region of it) as a PNG image, for tables, figures,
+        diagrams, formulas and multi-column layouts that text extraction garbles.
+
+        page is a physical number like "12" or a printed label like "label:xii". clip
+        zooms into a region: "x0,y0,x1,y1" from the page's top-left, in PDF points, or as
+        fractions of the page when every value is between 0 and 1 (e.g. "0,0.5,1,1" for the
+        bottom half). Images are capped at about 2000 pixels per side; clip to a smaller
+        region at a higher dpi to read fine print. PDF only; use read for Markdown.
+        """
+        with _read_connection(config) as conn:
+            rendered = render_page(conn, config.root, config.index_dir, doc, page,
+                                   dpi=dpi, clip=clip)
+        summary = (f"{doc} page {page}: page size {rendered.page_width_pt:.0f}x"
+                   f"{rendered.page_height_pt:.0f} pt; image {rendered.width_px}x"
+                   f"{rendered.height_px} px")
+        if rendered.capped:
+            summary += (f" (reduced to fit {MAX_PIXELS}px; pass clip to render a smaller "
+                        "region at full detail)")
+        return [Image(data=rendered.png, format="png"), summary]
 
     @mcp.tool()
     def get_outline(doc: str, max_level: int | None = None) -> str:
