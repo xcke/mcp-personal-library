@@ -4,16 +4,20 @@ import hmac
 import logging
 import sqlite3
 from collections.abc import Iterator
+from typing import Annotated
 from contextlib import contextmanager
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .config import Config
 from .db import connect
+from .errors import QueryError
 from . import browse
 from . import query as q
+from .read import LOW_TEXT_MARKER, read_units
 from .present import format_doc_info, format_listing, format_outline
 
 DEFAULT_CHAR_BUDGET = 20_000
@@ -50,17 +54,19 @@ def build_mcp(config: Config) -> FastMCP:
         query: str,
         path_glob: str | None = None,
         doc: str | None = None,
+        pages: str | None = None,
         limit: int = 20,
     ) -> str:
         """Ranked keyword search (stemmed, bm25) across every page of every document.
 
         query uses FTS5 syntax: words, "exact phrases", AND/OR/NOT, prefix*.
         path_glob restricts by relative path (e.g. "books/*.pdf"); doc restricts to one
-        document (relative path or numeric id). Each hit shows a locator
+        document (relative path or numeric id). pages restricts to a page/section range:
+        physical "10-20,35" or printed labels "label:xii-xv" (labels need doc). Each hit shows a locator
         doc/unit/label and a snippet with matches wrapped in [[ ]].
         """
         with _read_connection(config) as conn:
-            hits = q.search(conn, query, path_glob=path_glob, doc=doc, limit=limit)
+            hits = q.search(conn, query, path_glob=path_glob, doc=doc, pages=pages, limit=limit)
         return format_hits(hits, limit)
 
     @mcp.tool()
@@ -86,6 +92,31 @@ def build_mcp(config: Config) -> FastMCP:
             info = browse.doc_info(conn, doc)
         return format_doc_info(info, DEFAULT_CHAR_BUDGET)
 
+    @mcp.tool(name="read")
+    def read_tool(
+        doc: str,
+        from_: Annotated[str, Field(validation_alias="from")],
+        to: str | None = None,
+        max_chars: int = DEFAULT_CHAR_BUDGET,
+        cursor: str | None = None,
+    ) -> str:
+        """Read the text of pages (PDF) or sections (Markdown), like `sed -n`.
+
+        from is a range such as "10-20,35" (physical pages / section numbers) or
+        "label:xii-xv" (printed page labels, PDF only). Give to as the last page when
+        from is a single page. Each unit is shown under a header with its page, label
+        and heading path. Output beyond max_chars stops with a next_cursor; call again
+        with the same doc/from/to plus cursor to continue exactly there.
+        """
+        spec = f"{from_}-{to}" if to else from_
+        with _read_connection(config) as conn:
+            result = read_units(conn, doc, spec, max_chars=max_chars, cursor=cursor)
+        if result.next_cursor is None:
+            return result.text
+        return (f"{result.text}\n\n[truncated at max_chars={max_chars}. "
+                f"next_cursor: {result.next_cursor}  (repeat the call with the same "
+                "doc/from/to and cursor=<next_cursor>)]")
+
     @mcp.tool()
     def get_outline(doc: str, max_level: int | None = None) -> str:
         """Show a document's outline: PDF bookmarks or Markdown headings, each with the
@@ -105,7 +136,7 @@ def _read_connection(config: Config) -> Iterator[sqlite3.Connection]:
     conn = connect(config.db_path)
     try:
         yield conn
-    except q.QueryError as e:
+    except QueryError as e:
         raise ToolError(str(e)) from e
     finally:
         conn.close()
@@ -129,7 +160,7 @@ def format_hits(hits: list[q.Hit], limit: int, budget: int | None = None) -> str
         label = h.label if h.label else "-"
         entry = (
             f"{i}. {h.title} — locator {{doc: {h.doc!r}, unit: {h.unit}, label: {label!r}}}"
-            + ("  [low text: consider render_page]" if h.low_text else "")
+            + (f"  {LOW_TEXT_MARKER}" if h.low_text else "")
             + _section_info(h)
             + f"\n   {h.snippet}"
         )

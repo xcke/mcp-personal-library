@@ -5,7 +5,8 @@ import sqlite3
 from dataclasses import dataclass
 from enum import Enum
 
-from .query import QueryError, resolve_doc
+from .errors import QueryError
+from .query import resolve_doc
 
 DOCUMENT_KINDS = ("pdf", "md")
 

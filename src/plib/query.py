@@ -3,11 +3,10 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from .errors import QueryError
+from .pages import resolve_spans, physical_spans, is_label_spec, span_filter_sql
+
 HIT_OPEN, HIT_CLOSE = "[[", "]]"
-
-
-class QueryError(Exception):
-    """A problem with the caller's input, phrased so an agent can correct it."""
 
 
 @dataclass
@@ -43,14 +42,21 @@ def search(
     *,
     path_glob: str | None = None,
     doc: str | int | None = None,
+    pages: str | None = None,
     limit: int = 20,
 ) -> list[Hit]:
     if not query.strip():
         raise QueryError("Empty query. Provide search terms, e.g. 'configuring AND server'.")
-    where, params = ["units_fts MATCH ?"], [query]
-    if doc is not None:
+    where: list[str] = ["units_fts MATCH ?"]
+    params: list[str | int] = [query]
+    doc_row = resolve_doc(conn, doc) if doc is not None else None
+    if doc_row is not None:
         where.append("d.id = ?")
-        params.append(resolve_doc(conn, doc)["id"])
+        params.append(doc_row["id"])
+    if pages:
+        clause, bounds = span_filter_sql("u.unit_no", _search_spans(conn, doc_row, pages))
+        where.append(clause)
+        params.extend(bounds)
     if path_glob:
         where.append("d.path GLOB ?")
         params.append(path_glob)
@@ -81,3 +87,14 @@ def search(
             r["score"])
         for r in rows
     ]
+
+
+def _search_spans(conn: sqlite3.Connection, doc_row: sqlite3.Row | None, pages: str):
+    if doc_row is not None:
+        return resolve_spans(conn, doc_row, pages)
+    if is_label_spec(pages):
+        raise QueryError(
+            "Printed-label ranges differ per document. Pass doc= together with "
+            "pages='label:...', or use physical page numbers."
+        )
+    return physical_spans(pages)
