@@ -18,7 +18,8 @@ from .errors import QueryError
 from . import browse
 from . import query as q
 from .read import LOW_TEXT_MARKER, read_units
-from .present import format_doc_info, format_listing, format_outline
+from .grep import grep
+from .present import format_doc_info, format_grep, format_listing, format_outline
 
 DEFAULT_CHAR_BUDGET = 20_000
 
@@ -68,6 +69,31 @@ def build_mcp(config: Config) -> FastMCP:
         with _read_connection(config) as conn:
             hits = q.search(conn, query, path_glob=path_glob, doc=doc, pages=pages, limit=limit)
         return format_hits(hits, limit)
+
+    @mcp.tool(name="grep")
+    def grep_tool(
+        pattern: str,
+        regex: bool = False,
+        ignore_case: bool = True,
+        context: int = 200,
+        path_glob: str | None = None,
+        doc: str | None = None,
+        pages: str | None = None,
+        max_hits: int = 50,
+    ) -> str:
+        """Exact-string or regex search (like `rg -C`) for identifiers, error codes, part
+        numbers and exact phrases that ranked search mangles.
+
+        pattern is literal unless regex=true (Python `re` syntax). Case-insensitive unless
+        ignore_case=false. context is the number of characters kept on each side of a match.
+        path_glob, doc and pages narrow the search as in `search`. Output starts with hit
+        counts per document, then each match as a locator plus excerpt with the match
+        wrapped in [[ ]]. Beyond max_hits the response says how much was left out.
+        """
+        with _read_connection(config) as conn:
+            result = grep(conn, pattern, regex=regex, ignore_case=ignore_case, context=context,
+                          path_glob=path_glob, doc=doc, pages=pages, max_hits=max_hits)
+        return format_grep(result, DEFAULT_CHAR_BUDGET)
 
     @mcp.tool()
     def list_documents(glob: str | None = None, kind: str | None = None,

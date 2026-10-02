@@ -36,19 +36,16 @@ def resolve_doc(conn: sqlite3.Connection, doc: str | int) -> sqlite3.Row:
     return row
 
 
-def search(
+def unit_filters(
     conn: sqlite3.Connection,
-    query: str,
     *,
-    path_glob: str | None = None,
-    doc: str | int | None = None,
-    pages: str | None = None,
-    limit: int = 20,
-) -> list[Hit]:
-    if not query.strip():
-        raise QueryError("Empty query. Provide search terms, e.g. 'configuring AND server'.")
-    where: list[str] = ["units_fts MATCH ?"]
-    params: list[str | int] = [query]
+    doc: str | int | None,
+    path_glob: str | None,
+    pages: str | None,
+) -> tuple[list[str], list[str | int]]:
+    """SQL conditions (over aliases d=documents, u=units) shared by search and grep."""
+    where: list[str] = []
+    params: list[str | int] = []
     doc_row = resolve_doc(conn, doc) if doc is not None else None
     if doc_row is not None:
         where.append("d.id = ?")
@@ -60,6 +57,23 @@ def search(
     if path_glob:
         where.append("d.path GLOB ?")
         params.append(path_glob)
+    return where, params
+
+
+def search(
+    conn: sqlite3.Connection,
+    query: str,
+    *,
+    path_glob: str | None = None,
+    doc: str | int | None = None,
+    pages: str | None = None,
+    limit: int = 20,
+) -> list[Hit]:
+    if not query.strip():
+        raise QueryError("Empty query. Provide search terms, e.g. 'configuring AND server'.")
+    filters, filter_params = unit_filters(conn, doc=doc, path_glob=path_glob, pages=pages)
+    where = ["units_fts MATCH ?", *filters]
+    params: list[str | int] = [query, *filter_params]
     sql = f"""
         SELECT d.path, u.unit_no, u.label, d.title, u.low_text,
                u.heading_path, u.line_start, u.line_end,

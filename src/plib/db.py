@@ -48,15 +48,27 @@ CREATE VIRTUAL TABLE IF NOT EXISTS units_fts USING fts5(
     text, content='units', content_rowid='id', tokenize='porter unicode61'
 );
 
-CREATE TRIGGER IF NOT EXISTS units_ai AFTER INSERT ON units BEGIN
+-- Triggers are recreated on every connect so older indexes pick up new tables.
+CREATE VIRTUAL TABLE IF NOT EXISTS units_tri USING fts5(
+    text, content='units', content_rowid='id', tokenize='trigram'
+);
+
+DROP TRIGGER IF EXISTS units_ai;
+CREATE TRIGGER units_ai AFTER INSERT ON units BEGIN
     INSERT INTO units_fts(rowid, text) VALUES (new.id, new.text);
+    INSERT INTO units_tri(rowid, text) VALUES (new.id, new.text);
 END;
-CREATE TRIGGER IF NOT EXISTS units_ad AFTER DELETE ON units BEGIN
+DROP TRIGGER IF EXISTS units_ad;
+CREATE TRIGGER units_ad AFTER DELETE ON units BEGIN
     INSERT INTO units_fts(units_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    INSERT INTO units_tri(units_tri, rowid, text) VALUES ('delete', old.id, old.text);
 END;
-CREATE TRIGGER IF NOT EXISTS units_au AFTER UPDATE ON units BEGIN
+DROP TRIGGER IF EXISTS units_au;
+CREATE TRIGGER units_au AFTER UPDATE ON units BEGIN
     INSERT INTO units_fts(units_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    INSERT INTO units_tri(units_tri, rowid, text) VALUES ('delete', old.id, old.text);
     INSERT INTO units_fts(rowid, text) VALUES (new.id, new.text);
+    INSERT INTO units_tri(rowid, text) VALUES (new.id, new.text);
 END;
 """
 
@@ -67,5 +79,11 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    had_trigram_index = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE name = 'units_tri'").fetchone() is not None
     conn.executescript(SCHEMA)
+    if not had_trigram_index:
+        # Libraries indexed before grep existed have units but an empty trigram index.
+        conn.execute("INSERT INTO units_tri(units_tri) VALUES ('rebuild')")
+        conn.commit()
     return conn

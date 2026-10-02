@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .grep import GrepResult
+from .read import LOW_TEXT_MARKER
 from .browse import (DocumentInfo, DocumentListing, DocumentSummary, LabelRun, LabelShape,
                      OutlineItem)
 
@@ -96,4 +98,38 @@ def format_outline(items: list[OutlineItem], max_level: int | None, budget: int)
     if dropped:
         out += (f"\n\n[truncated: {dropped} more entries. Use max_level to show only "
                 "top-level entries.]")
+    return out
+
+
+def _match_entry(index: int, match) -> str:
+    label = match.label if match.label else "-"
+    head = f"{index}. locator {{doc: {match.doc!r}, unit: {match.unit}, label: {label!r}}}"
+    if match.low_text:
+        head += f"  {LOW_TEXT_MARKER}"
+    if match.heading_path:
+        head += f"\n   (section: {match.heading_path})"
+    if match.line_start is not None:
+        head += f"\n   (lines {match.line_start}-{match.line_end} of the section)"
+    return f"{head}\n   {match.excerpt}"
+
+
+def format_grep(result: GrepResult, budget: int) -> str:
+    if not result.total_hits:
+        return ("No matches. Check spelling, try ignore_case=true or a shorter pattern, "
+                "or widen path_glob/doc/pages.")
+    counts = [f"  {path}: {count}" for path, count in result.hits_per_doc.items()]
+    count_lines, dropped_counts = _within_budget(counts, budget // 4)
+    summary = [f"{result.total_hits} hits in {len(result.hits_per_doc)} documents:", *count_lines]
+    if dropped_counts:
+        summary.append(f"  [{dropped_counts} more documents not listed]")
+    entries = [_match_entry(i, m) for i, m in enumerate(result.matches, 1)]
+    kept, _ = _within_budget(entries, budget - sum(len(line) + 1 for line in summary))
+    out = "\n".join(summary) + "\n\n" + "\n".join(kept)
+    shown_docs = {m.doc for m in result.matches[:len(kept)]}
+    unseen_hits = result.total_hits - len(kept)
+    if unseen_hits:
+        unseen_docs = len(result.hits_per_doc) - len(shown_docs)
+        out += (f"\n\n[showing {len(kept)} of {result.total_hits} hits; {unseen_hits} more hits "
+                f"in {unseen_docs} documents not shown. Narrow with path_glob, doc or pages, "
+                "use a more specific pattern or less context, or raise max_hits.]")
     return out
