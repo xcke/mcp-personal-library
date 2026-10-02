@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -83,8 +83,8 @@ class Server:
                 yield session
 
 
-@pytest.fixture
-def server(library: Path):
+@contextmanager
+def start_server(library: Path):
     config = load_config(library, {"PLIB_TOKEN": TOKEN})
     index_library(config)
     with socket.socket() as s:
@@ -98,6 +98,14 @@ def server(library: Path):
     while not uv.started and time.time() < deadline:
         time.sleep(0.02)
     assert uv.started
-    yield Server(root=library, base_url=f"http://127.0.0.1:{port}", token=TOKEN)
-    uv.should_exit = True
-    thread.join(timeout=10)
+    try:
+        yield Server(root=library, base_url=f"http://127.0.0.1:{port}", token=TOKEN)
+    finally:
+        uv.should_exit = True
+        thread.join(timeout=10)
+
+
+@pytest.fixture
+def server(library: Path):
+    with start_server(library) as running:
+        yield running

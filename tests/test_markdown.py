@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import Server
+from conftest import Server, start_server
 
 GUIDE = """---
 title: Guide Title
@@ -104,3 +104,27 @@ async def test_oversized_section_is_split_at_paragraphs(markdown_files, server):
 async def test_markdown_and_pdf_are_searched_together(markdown_files, server):
     text = await search(server, "installer OR router")
     assert "notes/guide.md" in text and "networking.pdf" in text
+
+
+async def test_malformed_front_matter_is_still_excluded_from_text(library):
+    (library / "bad.md").write_text("---\ntitle: [unclosed\nbadmeta: yes\n---\n# Body\n\nreal content\n")
+    with start_server(library) as server_obj:
+        assert "No matches" in await search(server_obj, "badmeta")
+        assert "bad.md" in await search(server_obj, "content")
+
+
+async def test_heading_without_text_gets_placeholder_label(library):
+    (library / "empty.md").write_text("#\n\nbody under an empty heading\n\n## Child\n\nchild text\n")
+    with start_server(library) as server_obj:
+        text = await search(server_obj, "empty")
+        assert "label: '(untitled)'" in text
+        child = await search(server_obj, "child")
+        assert "section: (untitled) > Child" in child
+
+
+async def test_split_pieces_report_true_line_ranges(library):
+    body = "\n\n\n".join(f"p{i:03d} " + "x" * 700 for i in range(30))  # triple blank lines
+    (library / "gaps.md").write_text("# Gaps\n\n" + body + "\n")
+    with start_server(library) as running:
+        text = await search(running, "p029")
+    assert "-90)" in text  # p029 is on line 90 of the file
