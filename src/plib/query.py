@@ -4,7 +4,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from .errors import QueryError
-from .pages import resolve_spans, physical_spans, is_label_spec, span_filter_sql
+from .pages import Span, resolve_spans, physical_spans, is_label_spec, span_filter_sql
 
 HIT_OPEN, HIT_CLOSE = "[[", "]]"
 
@@ -89,7 +89,7 @@ def search(
     ]
 
 
-def _search_spans(conn: sqlite3.Connection, doc_row: sqlite3.Row | None, pages: str):
+def _search_spans(conn: sqlite3.Connection, doc_row: sqlite3.Row | None, pages: str) -> list[Span]:
     if doc_row is not None:
         return resolve_spans(conn, doc_row, pages)
     if is_label_spec(pages):
