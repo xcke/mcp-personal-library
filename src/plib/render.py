@@ -99,10 +99,22 @@ def render_page(
             f"{doc_row['path']!r} is Markdown and has no page images. "
             "Use the read tool to get its text instead."
         )
+    if doc_row["status"] != "ok":
+        raise QueryError(
+            f"{doc_row['path']!r} could not be indexed ({doc_row['status']}: "
+            f"{doc_row['error']}), so it cannot be rendered."
+        )
     if not MIN_DPI <= dpi <= MAX_DPI:
         raise QueryError(f"dpi {dpi} is out of range. Use a value from {MIN_DPI} to {MAX_DPI}.")
     page_no = _single_page(conn, doc_row, page)
-    with pymupdf.open(library_root / doc_row["path"]) as pdf:
+    try:
+        pdf = pymupdf.open(library_root / doc_row["path"])
+    except (pymupdf.FileNotFoundError, pymupdf.FileDataError) as e:
+        raise QueryError(
+            f"{doc_row['path']!r} is missing or unreadable on disk ({type(e).__name__}); "
+            "it may have been moved or deleted. Try list_documents."
+        ) from e
+    with pdf:
         pdf_page = pdf[page_no - 1]
         page_rect = pdf_page.rect
         region = _parse_clip(clip, page_rect) if clip else page_rect
@@ -113,7 +125,9 @@ def render_page(
         else:
             png = _rasterize(pdf_page, region, dpi)
             cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_bytes(png)
+            partial = cache_file.with_suffix(".tmp")
+            partial.write_bytes(png)
+            partial.replace(cache_file)
     width_px, height_px = _png_size(png)
     capped = max(region.width, region.height) * dpi / 72 > MAX_PIXELS
     return RenderedPage(png, page_rect.width, page_rect.height, width_px, height_px, capped)

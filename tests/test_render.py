@@ -112,3 +112,11 @@ async def test_cache_is_cleared_when_document_is_reindexed_or_removed(library):
     (library / "books" / "gardening.pdf").unlink()
     with start_server(library):
         assert len(cache_files(library)) == 1
+
+
+async def test_failed_and_vanished_documents_give_clear_errors(server):
+    assert "could not be indexed" in await error(server, "render_page", doc="secret.pdf",
+                                                 page="1")
+    (server.root / "networking.pdf").unlink()
+    assert "missing or unreadable" in await error(server, "render_page", doc="networking.pdf",
+                                                  page="1")
