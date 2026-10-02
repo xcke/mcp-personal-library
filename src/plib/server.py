@@ -34,7 +34,7 @@ def install_token_redaction(token: str) -> None:
 def build_mcp(config: Config) -> FastMCP:
     mcp = FastMCP(
         "plib",
-        instructions="Search a personal library of PDFs. Results carry a locator (doc, unit, label).",
+        instructions="Search a personal library of PDFs and Markdown notes. Results carry a locator (doc, unit, label).",
         streamable_http_path="/mcp",
         # The secret path segment is the access control; Host checks would block proxied use.
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -66,6 +66,15 @@ def build_mcp(config: Config) -> FastMCP:
     return mcp
 
 
+def _section_info(h) -> str:
+    parts = []
+    if h.heading_path:
+        parts.append(f"section: {h.heading_path}")
+    if h.line_start is not None:
+        parts.append(f"lines {h.line_start}-{h.line_end}")
+    return f"\n   ({', '.join(parts)})" if parts else ""
+
+
 def format_hits(hits, limit: int, budget: int | None = None) -> str:
     budget = budget or DEFAULT_CHAR_BUDGET
     if not hits:
@@ -76,6 +85,7 @@ def format_hits(hits, limit: int, budget: int | None = None) -> str:
         entry = (
             f"{i}. {h.title} — locator {{doc: {h.doc!r}, unit: {h.unit}, label: {label!r}}}"
             + ("  [low text: consider render_page]" if h.low_text else "")
+            + _section_info(h)
             + f"\n   {h.snippet}"
         )
         if used + len(entry) > budget and shown:

@@ -13,6 +13,7 @@ import pathspec
 
 from .config import INDEX_DIRNAME, Config
 from .db import connect
+from .extract_md import extract_md
 from .extract_pdf import EncryptedPDF, extract_pdf
 
 log = logging.getLogger("plib.indexer")
@@ -27,6 +28,13 @@ def load_ignore(root: Path) -> pathspec.GitIgnoreSpec:
     return pathspec.GitIgnoreSpec.from_lines(lines)
 
 
+KINDS = {".pdf": "pdf", ".md": "md", ".markdown": "md"}
+
+
+def document_kind(name: str) -> str | None:
+    return KINDS.get(Path(name).suffix.lower())
+
+
 def walk_library(root: Path):
     ignore = load_ignore(root)
     for dirpath, dirnames, filenames in os.walk(root):
@@ -37,7 +45,7 @@ def walk_library(root: Path):
             if not d.startswith(".") and not ignore.match_file(f"{prefix}{d}/")
         ]
         for name in filenames:
-            if name.startswith(".") or not name.lower().endswith(".pdf"):
+            if name.startswith(".") or document_kind(name) is None:
                 continue
             if ignore.match_file(prefix + name):
                 continue
@@ -101,9 +109,10 @@ def _index_file(conn: sqlite3.Connection, file: Path, rel: str) -> str:
             )
         return "unchanged"
 
+    kind = document_kind(file.name)
     status, error, extracted = "ok", None, None
     try:
-        extracted = extract_pdf(file)
+        extracted = extract_md(file) if kind == "md" else extract_pdf(file)
     except EncryptedPDF as e:
         status, error = "encrypted", str(e)
     except Exception as e:  # corrupt or unreadable file must not stop indexing
@@ -117,9 +126,10 @@ def _index_file(conn: sqlite3.Connection, file: Path, rel: str) -> str:
             """INSERT INTO documents
                (path, kind, size, mtime, sha256, title, author, unit_count,
                 meta_json, status, error, indexed_at)
-               VALUES (?, 'pdf', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 rel,
+                kind,
                 stat.st_size,
                 stat.st_mtime,
                 digest,
@@ -137,11 +147,12 @@ def _index_file(conn: sqlite3.Connection, file: Path, rel: str) -> str:
         doc_id = cur.lastrowid
         conn.executemany(
             """INSERT INTO units
-               (doc_id, unit_no, label, heading_path, text, char_count, image_count, low_text)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (doc_id, unit_no, label, heading_path, line_start, line_end, text,
+                char_count, image_count, low_text)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
-                (doc_id, u.unit_no, u.label, u.heading_path, u.text, len(u.text),
-                 u.image_count, int(u.low_text))
+                (doc_id, u.unit_no, u.label, u.heading_path, u.line_start, u.line_end,
+                 u.text, len(u.text), u.image_count, int(u.low_text))
                 for u in extracted.units
             ],
         )

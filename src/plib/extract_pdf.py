@@ -1,40 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 import pymupdf
+
+from .models import Extracted, OutlineEntry, Unit
 
 LOW_TEXT_CHARS = 50
 
 
 class EncryptedPDF(Exception):
     pass
-
-
-@dataclass
-class Unit:
-    unit_no: int
-    label: str | None
-    text: str
-    image_count: int
-    low_text: bool
-    heading_path: str = ""
-
-
-@dataclass
-class OutlineEntry:
-    level: int
-    title: str
-    unit_no: int | None
-
-
-@dataclass
-class Extracted:
-    title: str | None
-    author: str | None
-    meta: dict
-    units: list[Unit] = field(default_factory=list)
-    outline: list[OutlineEntry] = field(default_factory=list)
 
 
 def extract_pdf(path) -> Extracted:

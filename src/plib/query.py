@@ -18,6 +18,9 @@ class Hit:
     title: str
     snippet: str
     low_text: bool
+    heading_path: str
+    line_start: int | None
+    line_end: int | None
     score: float
 
 
@@ -53,6 +56,7 @@ def search(
         params.append(path_glob)
     sql = f"""
         SELECT d.path, u.unit_no, u.label, d.title, u.low_text,
+               u.heading_path, u.line_start, u.line_end,
                snippet(units_fts, 0, '{HIT_OPEN}', '{HIT_CLOSE}', '…', 24) AS snippet,
                bm25(units_fts) AS score
         FROM units_fts
@@ -73,6 +77,7 @@ def search(
         ) from e
     return [
         Hit(r["path"], r["unit_no"], r["label"], r["title"], " ".join(r["snippet"].split()),
-            bool(r["low_text"]), r["score"])
+            bool(r["low_text"]), r["heading_path"], r["line_start"], r["line_end"],
+            r["score"])
         for r in rows
     ]
