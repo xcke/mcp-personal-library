@@ -144,6 +144,9 @@ def format_grep(result: GrepResult, budget: int) -> str:
     return out
 
 
+MAX_FAILED_FILES_LISTED = 10
+
+
 def format_index_status(counts: IndexCounts, progress: ProgressSnapshot) -> str:
     lines = [
         f"state: {progress.state}",
@@ -154,6 +157,12 @@ def format_index_status(counts: IndexCounts, progress: ProgressSnapshot) -> str:
     ]
     if progress.current:
         lines.append(f"current file: {progress.current}")
+    if counts.failures:
+        lines.append("failed files:")
+        lines += [f"  {f.path}: {f.reason}" for f in counts.failures[:MAX_FAILED_FILES_LISTED]]
+        hidden = counts.failed - MAX_FAILED_FILES_LISTED
+        if hidden > 0:
+            lines.append(f"  ... and {hidden} more (run `plib status` for the full list)")
     if progress.pending:
         lines.append("[indexing in progress: documents not yet indexed are missing from "
                      "search and grep results; check again shortly.]")

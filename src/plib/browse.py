@@ -138,13 +138,26 @@ def get_outline(conn: sqlite3.Connection, doc: str | int, max_level: int | None)
 
 
 @dataclass
+class FailedDocument:
+    path: str
+    reason: str
+
+
+@dataclass
 class IndexCounts:
     indexed: int
-    failed: int
+    failures: list[FailedDocument]
+
+    @property
+    def failed(self) -> int:
+        return len(self.failures)
 
 
 def index_counts(conn: sqlite3.Connection) -> IndexCounts:
-    row = conn.execute(
-        "SELECT COALESCE(SUM(status = 'ok'), 0) AS indexed, "
-        "COALESCE(SUM(status != 'ok'), 0) AS failed FROM documents").fetchone()
-    return IndexCounts(row["indexed"], row["failed"])
+    indexed = conn.execute("SELECT COUNT(*) FROM documents WHERE status = 'ok'").fetchone()[0]
+    failures = [
+        FailedDocument(r["path"], r["error"] or r["status"])
+        for r in conn.execute(
+            "SELECT path, status, error FROM documents WHERE status != 'ok' ORDER BY path")
+    ]
+    return IndexCounts(indexed, failures)

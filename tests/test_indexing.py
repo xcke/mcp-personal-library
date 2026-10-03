@@ -66,3 +66,30 @@ async def test_index_status_when_idle(library):
     assert "state: idle" in out
     assert "total: 4" in out and "indexed: 2" in out and "failed: 2" in out
     assert "pending: 0" in out
+
+
+async def test_index_status_names_failed_files_and_reasons(library):
+    with start_server(library) as server:
+        out = await text(server, "index_status")
+    assert "failed files:" in out
+    corrupt = next(line for line in out.splitlines() if line.strip().startswith("corrupt.pdf"))
+    secret = next(line for line in out.splitlines() if line.strip().startswith("secret.pdf"))
+    assert "password" not in corrupt.lower() and "password" in secret.lower()
+
+
+async def test_index_status_without_failures_lists_no_files(library):
+    (library / "corrupt.pdf").unlink()
+    (library / "secret.pdf").unlink()
+    with start_server(library) as server:
+        out = await text(server, "index_status")
+    assert "failed: 0" in out and "failed files" not in out
+
+
+async def test_index_status_truncates_long_failure_lists(library):
+    for number in range(30):
+        (library / f"broken{number:02d}.pdf").write_bytes(b"not a pdf")
+    with start_server(library) as server:
+        out = await text(server, "index_status")
+    assert "failed: 32" in out
+    assert "and 22 more" in out
+    assert out.count(".pdf:") == 10
