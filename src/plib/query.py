@@ -14,6 +14,22 @@ HIT_OPEN, HIT_CLOSE = "[[", "]]"
 _QUOTED_OR_HYPHENATED = re.compile(r'"(?:[^"]|"")*"|\b\w+(?:-\w+)+(\*?)')
 
 
+_LEADER_LINE = re.compile(r"(\.\s?){4,}\s*\S{1,6}$")
+CONTENTS_LEADER_RATIO = 0.4
+CONTENTS_MIN_LINES = 3
+# Contents hits are over-fetched so demoting them still leaves a full page of results.
+CONTENTS_OVERFETCH = 3
+
+
+def looks_like_contents(page_text: str) -> bool:
+    """A table-of-contents page is mostly lines ending in dotted leaders and a page number."""
+    lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+    if len(lines) < CONTENTS_MIN_LINES:
+        return False
+    leader_lines = sum(1 for line in lines if _LEADER_LINE.search(line))
+    return leader_lines / len(lines) >= CONTENTS_LEADER_RATIO
+
+
 def quote_hyphenated_terms(query: str) -> str:
     """Turn bare `FG-80F` / `leaf-0*` into phrases so FTS5 doesn't read `-` as an operator."""
     def quote(match: re.Match[str]) -> str:
@@ -90,7 +106,7 @@ def search(
     where = ["units_fts MATCH ?", *filters]
     params: list[str | int] = [quote_hyphenated_terms(query), *filter_params]
     sql = f"""
-        SELECT d.path, u.unit_no, u.label, d.title, u.low_text,
+        SELECT d.path, d.kind, u.text, u.unit_no, u.label, d.title, u.low_text,
                u.heading_path, u.line_start, u.line_end,
                snippet(units_fts, 0, '{HIT_OPEN}', '{HIT_CLOSE}', '…', 24) AS snippet,
                bm25(units_fts) AS score
@@ -101,7 +117,8 @@ def search(
         ORDER BY score
         LIMIT ?
     """
-    params.append(max(1, min(limit, 100)))
+    limit = max(1, min(limit, 100))
+    params.append(limit * CONTENTS_OVERFETCH)
     try:
         rows = conn.execute(sql, params).fetchall()
     except sqlite3.OperationalError as e:
@@ -110,12 +127,20 @@ def search(
             "\"exact phrases\", AND / OR / NOT, and prefix* terms. Quote terms "
             "containing other punctuation, e.g. \"foo.bar\"."
         ) from e
+    rows = _demote_contents_pages(rows)[:limit]
     return [
         Hit(r["path"], r["unit_no"], r["label"], r["title"], " ".join(r["snippet"].split()),
             bool(r["low_text"]), r["heading_path"], r["line_start"], r["line_end"],
             r["score"])
         for r in rows
     ]
+
+
+def _demote_contents_pages(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
+    is_contents = [r["kind"] == "pdf" and looks_like_contents(r["text"]) for r in rows]
+    body = [r for r, flagged in zip(rows, is_contents) if not flagged]
+    contents = [r for r, flagged in zip(rows, is_contents) if flagged]
+    return body + contents
 
 
 def _search_spans(conn: sqlite3.Connection, doc_row: sqlite3.Row | None, pages: str) -> list[Span]:

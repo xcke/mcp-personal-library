@@ -151,3 +151,28 @@ def test_serve_prints_endpoint_url_and_index_lives_in_root(library):
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+
+
+CONTENTS_PAGE = "\n".join(
+    f"{title} {'.' * 40} {page}" for title, page in [
+        ("OSPF LSA throttling", 3), ("OSPF LSA throttling timers", 4),
+        ("OSPF LSA throttling limits", 5), ("OSPF LSA throttling examples", 6),
+        ("Glossary", 9),
+    ]
+)
+BODY_PAGE = (
+    "OSPF LSA throttling slows how often a router floods a changed LSA, so a flapping\n"
+    "link cannot overwhelm its neighbours with updates. Configure the start interval\n"
+    "first, then the hold interval and the maximum interval."
+)
+
+
+async def test_search_ranks_body_pages_above_contents_pages(library):
+    from conftest import make_pdf, start_server
+    make_pdf(library / "guide.pdf", [CONTENTS_PAGE, BODY_PAGE])
+    make_pdf(library / "toc_only.pdf", [CONTENTS_PAGE.replace("OSPF", "BGP"), "Unrelated"])
+    with start_server(library) as running:
+        text = text_of(await call(running, "search", query="OSPF LSA throttling"))
+        assert text.index("unit: 2") < text.index("unit: 1")
+        toc_only = text_of(await call(running, "search", query="BGP LSA throttling"))
+        assert "toc_only.pdf" in toc_only and "unit: 1" in toc_only
