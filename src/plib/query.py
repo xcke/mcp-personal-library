@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 
@@ -7,6 +8,20 @@ from .errors import QueryError
 from .pages import Span, resolve_spans, physical_spans, is_label_spec, span_filter_sql
 
 HIT_OPEN, HIT_CLOSE = "[[", "]]"
+
+# A complete "quoted phrase" is kept as-is; an unterminated quote matches neither
+# alternative's quote handling and is left for FTS5 to reject.
+_QUOTED_OR_HYPHENATED = re.compile(r'"(?:[^"]|"")*"|\b\w+(?:-\w+)+(\*?)')
+
+
+def quote_hyphenated_terms(query: str) -> str:
+    """Turn bare `FG-80F` / `leaf-0*` into phrases so FTS5 doesn't read `-` as an operator."""
+    def quote(match: re.Match[str]) -> str:
+        if match.group(0).startswith('"'):
+            return match.group(0)
+        prefix_star = match.group(1)
+        return f'"{match.group(0).removesuffix(prefix_star)}"{prefix_star}'
+    return _QUOTED_OR_HYPHENATED.sub(quote, query)
 
 
 @dataclass
@@ -73,7 +88,7 @@ def search(
         raise QueryError("Empty query. Provide search terms, e.g. 'configuring AND server'.")
     filters, filter_params = unit_filters(conn, doc=doc, path_glob=path_glob, pages=pages)
     where = ["units_fts MATCH ?", *filters]
-    params: list[str | int] = [query, *filter_params]
+    params: list[str | int] = [quote_hyphenated_terms(query), *filter_params]
     sql = f"""
         SELECT d.path, u.unit_no, u.label, d.title, u.low_text,
                u.heading_path, u.line_start, u.line_end,
@@ -93,7 +108,7 @@ def search(
         raise QueryError(
             f"Invalid search query ({e}). Queries use FTS5 syntax: bare words, "
             "\"exact phrases\", AND / OR / NOT, and prefix* terms. Quote terms "
-            "containing punctuation, e.g. \"foo-bar\"."
+            "containing other punctuation, e.g. \"foo.bar\"."
         ) from e
     return [
         Hit(r["path"], r["unit_no"], r["label"], r["title"], " ".join(r["snippet"].split()),

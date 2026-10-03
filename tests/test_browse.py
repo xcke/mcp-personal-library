@@ -51,7 +51,7 @@ async def test_doc_info_for_pdf_has_labels_and_low_text_pages(server):
 
 async def test_doc_info_for_pdf_without_labels_or_low_text(server):
     out = await text(server, "doc_info", doc="networking.pdf")
-    assert "pages: 2" in out
+    assert "pages: 4" in out
     assert "low-text pages: none" in out
 
 

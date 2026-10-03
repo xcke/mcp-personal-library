@@ -107,7 +107,8 @@ def library(tmp_path: Path) -> Path:
         labels=[{"startpage": 0, "prefix": "", "style": "r", "firstpagenum": 1},
                 {"startpage": 2, "prefix": "", "style": "D", "firstpagenum": 1}],
     )
-    make_pdf(root / "networking.pdf", ["Configure the router", "Firewall rules and ports"])
+    make_pdf(root / "networking.pdf", ["Configure the router", "Firewall rules and ports",
+                    "FortiGate FG-80F datasheet", "MTU mismatch on leaf-07 uplink"])
     make_pdf(root / "secret.pdf", ["Top secret plans"], password="pw")
     (root / "corrupt.pdf").write_bytes(b"this is not a pdf")
     return root

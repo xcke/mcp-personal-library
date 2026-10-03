@@ -61,6 +61,19 @@ async def test_search_fts5_syntax(server):
     assert "gardening.pdf" in prefix
 
 
+async def test_search_accepts_bare_hyphenated_terms(server):
+    bare = text_of(await call(server, "search", query="FG-80F"))
+    quoted = text_of(await call(server, "search", query='"FG-80F"'))
+    assert not quoted.startswith("Invalid") and "networking.pdf" in bare
+    assert bare == quoted
+    combined = text_of(await call(server, "search", query="MTU mismatch leaf-07"))
+    assert "networking.pdf" in combined and "unit: 4" in combined
+    mixed = text_of(await call(server, "search", query='"firewall rules" OR leaf-07 NOT FG-80F'))
+    assert "unit: 4" in mixed and "unit: 3" not in mixed
+    prefix = text_of(await call(server, "search", query="leaf-0*"))
+    assert "unit: 4" in prefix
+
+
 async def test_search_filters_by_glob_and_doc(server):
     only_books = text_of(await call(server, "search", query="configure", path_glob="books/*"))
     assert "gardening.pdf" in only_books and "networking.pdf" not in only_books
